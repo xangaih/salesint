@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ProfilePanel from "@/components/ProfilePanel";
-import { TIER_LABELS, type Profile, type RfqGroup, type RfqResponse, type Summary } from "@/lib/match";
+import { TIER_LABELS, TIER_SHORT, type Profile, type RfqGroup, type RfqResponse, type Summary } from "@/lib/match";
 import { dibbsUrl, formatNsn, formatSolicitation, setAsideLabel } from "@/lib/parse";
 
 type View = "matches" | "all";
+type Filter = "all" | "due" | 1 | 2 | 3 | 4;
+const DUE_SOON_DAYS = 2;
 
 const fmtDate = (ymd: string) =>
   new Date(ymd + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -41,8 +43,21 @@ function Why({ r }: { r: RfqGroup }) {
   );
 }
 
+function Badges({ r }: { r: RfqGroup }) {
+  const b = "inline-block whitespace-nowrap px-1.5 py-0.5 text-xs";
+  return (
+    <div className="flex flex-wrap gap-1">
+      {r.days_left <= DUE_SOON_DAYS && <span className={`${b} bg-red-600 font-medium text-white`}>Due soon</span>}
+      {r.fast_award && <span className={`${b} border border-amber-400 text-amber-800`} title="Can be awarded before the deadline.">Fast Award</span>}
+      {r.extended && <span className={`${b} border border-violet-400 text-violet-800`}>Deadline extended</span>}
+      {r.is_new && <span className={`${b} border border-blue-400 text-blue-800`}>New</span>}
+    </div>
+  );
+}
+
 export default function Page() {
   const [view, setView] = useState<View>("matches");
+  const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<RfqResponse | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -62,15 +77,17 @@ export default function Page() {
   useEffect(() => {
     let stale = false;
     setLoading(true);
-    getJson<RfqResponse>(`/api/rfqs?view=${view}&page=${page}`)
+    getJson<RfqResponse>(`/api/rfqs?view=${view}&page=${page}` +
+      (view === "matches" && typeof filter === "number" ? `&tier=${filter}` : "") +
+      (view === "matches" && filter === "due" ? `&due=${DUE_SOON_DAYS}` : ""))
       .then((j) => { if (!stale) { setData(j); setError(null); } })
       .catch((e) => { if (!stale) setError(e.message); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [view, page, version]);
+  }, [view, filter, page, version]);
 
-  const show = useCallback((v: View) => { setView(v); setPage(1); }, []);
-  const onSaved = useCallback((p: Profile) => { setProfile(p); setPage(1); setVersion((v) => v + 1); }, []);
+  const show = useCallback((v: View, f: Filter = "all") => { setView(v); setFilter(f); setPage(1); }, []);
+  const onSaved = useCallback((p: Profile) => { setProfile(p); setFilter("all"); setPage(1); setVersion((v) => v + 1); }, []);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
   const tab = (v: View, label: string) => (
@@ -94,7 +111,7 @@ export default function Page() {
       {summary && (
         <p className="mt-3 border border-zinc-300 bg-zinc-50 px-3 py-2 text-base">
           {num(summary.open_groups, () => show("all"))} open → {num(summary.matched_groups, () => show("matches"))} match your business
-          {" "}→ <b>{summary.matched_due2.toLocaleString()}</b> due within 2 days
+          {" "}→ {num(summary.matched_due2, () => show("matches", "due"))} due within 2 days
         </p>
       )}
 
@@ -102,6 +119,25 @@ export default function Page() {
         {tab("matches", "For you")}
         {tab("all", "All open RFQs")}
       </div>
+
+      {view === "matches" && summary && (
+        <div className="flex flex-wrap gap-1.5 border border-t-0 border-zinc-300 px-2 py-2">
+          {([
+            ["all", "All matches", summary.matched_groups],
+            [1, TIER_SHORT[1], summary.tiers[1]],
+            [2, TIER_SHORT[2], summary.tiers[2]],
+            [3, TIER_SHORT[3], summary.tiers[3]],
+            [4, TIER_SHORT[4], summary.tiers[4]],
+            ["due", "Due within 2 days", summary.matched_due2],
+          ] as [Filter, string, number][]).map(([f, label, count]) => (
+            <button key={String(f)} type="button" onClick={() => show("matches", f)}
+              title={typeof f === "number" ? TIER_LABELS[f] : undefined}
+              className={`rounded-full border px-2.5 py-0.5 ${filter === f ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:bg-zinc-100"}`}>
+              {label} <span className={filter === f ? "text-zinc-300" : "text-zinc-500"}>{count.toLocaleString()}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="overflow-x-auto border border-t-0 border-zinc-300">
         <table className="w-full border-collapse text-left">
@@ -114,6 +150,7 @@ export default function Page() {
               <th className="px-2 py-1.5 text-right">Qty</th>
               <th className="px-2 py-1.5">Due</th>
               <th className="px-2 py-1.5">Set-aside</th>
+              <th className="px-2 py-1.5">Badges</th>
             </tr>
           </thead>
           <tbody className={loading ? "opacity-50" : ""}>
@@ -135,14 +172,17 @@ export default function Page() {
                   {fmtDate(r.return_by)} <span className="text-xs text-zinc-500">{inDays(r.days_left)}</span>
                 </td>
                 <td className="px-2 py-1">{setAsideLabel(r.set_aside)}</td>
+                <td className="px-2 py-1"><Badges r={r} /></td>
               </tr>
             ))}
             {!data && loading && (
-              <tr><td colSpan={7} className="px-2 py-6 text-center text-zinc-500">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-2 py-6 text-center text-zinc-500">Loading…</td></tr>
             )}
             {data && data.rows.length === 0 && (
-              <tr><td colSpan={7} className="px-2 py-6 text-center text-zinc-500">
-                {view === "matches"
+              <tr><td colSpan={8} className="px-2 py-6 text-center text-zinc-500">
+                {view === "matches" && filter !== "all"
+                  ? "No matches under this filter."
+                  : view === "matches"
                   ? "Nothing matches your profile yet. Add product classes, manufacturers or parts above, or look at All open RFQs."
                   : "No open RFQs. Run the ingest (npm run ingest) to load daily files."}
               </td></tr>
