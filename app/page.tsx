@@ -110,6 +110,19 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState(0);
   const [email, setEmail] = useState<EmailState | null>(null);
+  const [pull, setPull] = useState<{ kind: "idle" | "running" | "done" | "error"; msg?: string }>({ kind: "idle" });
+  const pullData = useCallback(async () => {
+    setPull({ kind: "running" });
+    try {
+      const r = await fetch("/api/pull", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Could not pull data.");
+      setPull({ kind: "done", msg: j.message });
+      if (j.days.length > 0) { setPage(1); setVersion((v) => v + 1); } // show the new data
+    } catch (e) {
+      setPull({ kind: "error", msg: (e as Error).message });
+    }
+  }, []);
   const draftEmail = useCallback(async (row: RfqGroup) => {
     setEmail({ row, kind: "loading" });
     try {
@@ -169,6 +182,10 @@ export default function Page() {
     <main className="mx-auto max-w-[1400px] px-4 py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6">
         <h1 className="text-lg font-semibold">DIBBS RFQ Finder</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {pull.kind !== "idle" && pull.kind !== "running" && (
+          <span role="status" className={`text-xs ${pull.kind === "error" ? "text-red-700" : "text-green-700"}`}>{pull.msg}</span>
+        )}
         {summary && (
           <p className="text-xs text-zinc-600">
             {summary.latest_post_date ? (
@@ -180,10 +197,16 @@ export default function Page() {
                 </span>
               </>
             ) : (
-              "No data loaded yet. Run: npm run download, then npm run ingest."
+              "No data loaded yet."
             )}
           </p>
         )}
+        <button type="button" onClick={pullData} disabled={pull.kind === "running"}
+          title="Downloads any daily files newer than what is loaded, straight from DIBBS, and loads them. Accepts the DIBBS consent notice for you. Safe to repeat: existing lines are not duplicated."
+          className="border border-zinc-400 px-2 py-0.5 text-xs hover:bg-zinc-100 disabled:opacity-60">
+          {pull.kind === "running" ? "Pulling from DIBBS…" : "Pull latest data"}
+        </button>
+        </div>
       </div>
 
       {error && <p className="mt-3 border border-red-300 bg-red-50 px-3 py-2 text-red-800">{error}</p>}

@@ -29,6 +29,12 @@ DIBBS has no API. It publishes files per posting day:
 **only** when you pass `--accept-consent`, so that stays your decision. Both the consent page and a missing file
 come back as HTML with HTTP 200, so every download is checked to be real data before it is saved.
 
+**Pull latest data button.** The page header has a button that does the same thing from the browser: the server
+downloads every posting day newer than what is loaded (the last 3 posting days when the database is empty), unzips
+in memory and ingests. It accepts the consent notice automatically, by the owner's choice. It is safe to press
+repeatedly: lines already loaded are not duplicated, new lines are added, and a changed deadline is recorded as an
+extension. There is no login and no rate limit on it.
+
 Why daily files and not page scraping: one request per day instead of about 50 slow search pages; the files are
 complete (every line, not what a search happens to return); and the layout is stable.
 
