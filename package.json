@@ -8,7 +8,9 @@
     "start": "next start",
     "ingest": "tsx scripts/ingest.ts",
     "schema": "tsx scripts/schema.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "seed": "tsx scripts/seed.ts",
+    "download": "tsx scripts/download.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

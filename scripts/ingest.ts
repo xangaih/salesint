@@ -1,7 +1,7 @@
 // Usage: npx tsx scripts/ingest.ts [dir]   (dir defaults to ./data)
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { unzipSync } from "fflate";
+import { unzipBatch } from "./unzip";
 import { connect } from "../lib/db";
 import { assertIsData, normalizeNsn, parseCsvLine, parseIndexLine, type RfqLine } from "../lib/parse";
 import { loadEnv } from "./env";
@@ -29,15 +29,7 @@ function find(name: string): string | null {
 function unzipIfNeeded(ymd: string) {
   const zip = find(`bq${ymd}.zip`);
   if (!zip || (find(`bq${ymd}.txt`) && find(`as${ymd}.txt`))) return;
-  const head = readFileSync(zip).subarray(0, 2).toString("latin1");
-  if (head !== "PK") throw new Error(`bq${ymd}.zip is not a zip file (probably a DIBBS web page). Nothing loaded.`);
-  for (const [entry, bytes] of Object.entries(unzipSync(readFileSync(zip)))) {
-    const base = entry.split(/[\\/]/).pop()!.toLowerCase();
-    if (/^(bq|as)\d{6}\.txt$/.test(base) && !find(base)) {
-      writeFileSync(join(dir, base), bytes);
-      console.log(`  unzipped ${base}`);
-    }
-  }
+  for (const f of unzipBatch(zip, dir)) console.log(`  unzipped ${f}`);
 }
 
 async function ingestIndex(path: string, fileName: string, ymd: string, postDate: string) {
