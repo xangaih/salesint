@@ -68,9 +68,9 @@ function groupsCte(today: string) {
     )`;
 }
 
-export type ListParams = { view: "matches" | "all"; tier?: number; due?: number; q?: string; page: number };
+export type ListParams = { view: "matches" | "all"; tier?: number; due?: number; q?: string; qmin?: number; qmax?: number; page: number };
 
-export async function listGroups({ view, tier, due, q, page }: ListParams): Promise<RfqResponse> {
+export async function listGroups({ view, tier, due, q, qmin, qmax, page }: ListParams): Promise<RfqResponse> {
   const sql = db();
   const today = todayNY();
   const p = Math.max(1, page);
@@ -84,6 +84,8 @@ export async function listGroups({ view, tier, due, q, page }: ListParams): Prom
       ${view === "matches" ? sql`and tier is not null` : sql``}
       ${tier ? sql`and tier = ${tier}` : sql``}
       ${due != null ? sql`and days_left <= ${due}` : sql``}
+      ${qmin != null ? sql`and total_qty >= ${qmin}` : sql``}
+      ${qmax != null ? sql`and total_qty <= ${qmax}` : sql``}
       ${needle
         ? sql`and (solicitation like ${like} or ${strip(sql`nsn`)} like ${like}
                    or ${strip(sql`prs`)} like ${like} or ${strip(sql`coalesce(item, '')`)} like ${like})`
@@ -102,9 +104,11 @@ export async function listGroups({ view, tier, due, q, page }: ListParams): Prom
   return { today, page: p, page_size: PAGE_SIZE, total, rows };
 }
 
-export async function getSummary(): Promise<Summary> {
+export async function getSummary(qmin?: number, qmax?: number): Promise<Summary> {
   const sql = db();
   const today = todayNY();
+  // Quantity range on the group's total quantity (the number shown in the Qty column).
+  const inRange = sql`(total_qty >= ${qmin ?? 0} and total_qty <= ${qmax ?? 2147483647})`;
   const [s] = await sql`
     with ${groupsCte(today)}
     select count(*)::int                                            as open_groups,
@@ -113,7 +117,13 @@ export async function getSummary(): Promise<Summary> {
            count(*) filter (where tier = 1)::int as t1,
            count(*) filter (where tier = 2)::int as t2,
            count(*) filter (where tier = 3)::int as t3,
-           count(*) filter (where tier = 4)::int as t4
+           count(*) filter (where tier = 4)::int as t4,
+           count(*) filter (where tier is not null and ${inRange})::int as r_matched,
+           count(*) filter (where tier is not null and days_left <= ${DUE_SOON_DAYS} and ${inRange})::int as r_due2,
+           count(*) filter (where tier = 1 and ${inRange})::int as r1,
+           count(*) filter (where tier = 2 and ${inRange})::int as r2,
+           count(*) filter (where tier = 3 and ${inRange})::int as r3,
+           count(*) filter (where tier = 4 and ${inRange})::int as r4
     from g`;
   const [i] = await sql`
     select count(*)::int as files, coalesce(sum(lines_read), 0)::int as lines_read,
@@ -127,6 +137,7 @@ export async function getSummary(): Promise<Summary> {
     matched_groups: s.matched_groups,
     matched_due2: s.matched_due2,
     tiers: { 1: s.t1, 2: s.t2, 3: s.t3, 4: s.t4 },
+    in_range: { matched_groups: s.r_matched, matched_due2: s.r_due2, tiers: { 1: s.r1, 2: s.r2, 3: s.r3, 4: s.r4 } },
     latest_post_date: i.latest_post_date,
     post_days: i.post_days,
     ingest: { files: i.files, lines_read: i.lines_read, rows_loaded: i.rows_loaded, skipped: i.skipped },
