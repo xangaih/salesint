@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PROFILE_SET_ASIDES, type Profile } from "@/lib/match";
 import { normalizeNsn, setAsideLabel } from "@/lib/parse";
 
-function Chips({ label, hint, values, onChange, pattern, upper }: {
+type CageSuggestion = { cage: string; open_in_classes: number; open_total: number };
+
+function Chips({ label, hint, values, onChange, pattern, upper, children }: {
   label: string; hint: string; values: string[]; onChange: (v: string[]) => void; pattern: RegExp; upper?: boolean;
+  children?: React.ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const [bad, setBad] = useState(false);
@@ -38,6 +41,7 @@ function Chips({ label, hint, values, onChange, pattern, upper }: {
         <button type="button" onClick={add} className="border border-zinc-300 px-1.5 py-0.5 text-xs hover:bg-zinc-100">Add</button>
         {bad && <span className="text-xs text-red-700">Expected {hint}</span>}
       </div>
+      {children}
     </div>
   );
 }
@@ -47,6 +51,17 @@ export default function ProfilePanel({ initial, onSaved }: { initial: Profile; o
   const [p, setP] = useState<Profile>(initial);
   const [nsnText, setNsnText] = useState(initial.nsns.join("\n"));
   const [status, setStatus] = useState<{ kind: "idle" | "saving" | "saved" | "error"; msg?: string }>({ kind: "idle" });
+  const [suggested, setSuggested] = useState<CageSuggestion[]>([]);
+  const fscKey = p.fscs.join(",");
+  useEffect(() => {
+    if (!fscKey) return setSuggested([]);
+    let stale = false;
+    fetch(`/api/cages?fscs=${fscKey}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((j) => { if (!stale) setSuggested(j); })
+      .catch(() => { if (!stale) setSuggested([]); });
+    return () => { stale = true; };
+  }, [fscKey]);
   const edit = (patch: Partial<Profile>) => { setP({ ...p, ...patch }); setStatus({ kind: "idle" }); };
 
   const save = async () => {
@@ -104,7 +119,22 @@ export default function ProfilePanel({ initial, onSaved }: { initial: Profile; o
             </div>
           </div>
           <Chips label="Product classes (FSC)" hint="4 digits" values={p.fscs} pattern={/^\d{4}$/} onChange={(fscs) => edit({ fscs })} />
-          <Chips label="Manufacturers I carry (CAGE)" hint="5 characters" values={p.cages} pattern={/^[A-Z0-9]{5}$/} upper onChange={(cages) => edit({ cages })} />
+          <Chips label="Manufacturers I carry (CAGE)" hint="5 characters" values={p.cages} pattern={/^[A-Z0-9]{5}$/} upper onChange={(cages) => edit({ cages })}>
+            {suggested.some((c) => !p.cages.includes(c.cage)) && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-zinc-600">
+                <span title="Manufacturers with at least 5 open RFQ lines, 60% or more of them in your product classes">
+                  Suggested for your classes:
+                </span>
+                {suggested.filter((c) => !p.cages.includes(c.cage)).map((c) => (
+                  <button key={c.cage} type="button" onClick={() => edit({ cages: [...p.cages, c.cage] })}
+                    title={`${c.open_in_classes} of ${c.open_total} open RFQ lines are in your classes`}
+                    className="border border-dashed border-zinc-400 px-1.5 py-0.5 hover:bg-zinc-100">
+                    + <span className="font-mono">{c.cage}</span> <span className="text-zinc-500">{c.open_in_classes} open</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Chips>
           <label className="block md:col-span-2">
             <div className="font-medium">My parts <span className="font-normal text-zinc-500">(NSNs, one per line, dashes allowed)</span></div>
             <textarea value={nsnText} onChange={(e) => { setNsnText(e.target.value); setStatus({ kind: "idle" }); }} rows={3}

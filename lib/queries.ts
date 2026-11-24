@@ -184,3 +184,30 @@ export async function saveProfile(p: Profile): Promise<Profile> {
       nsns = excluded.nsns, small_business = excluded.small_business, set_asides = excluded.set_asides`;
   return getProfile(); // read back what the database actually holds
 }
+
+export type CageSuggestion = { cage: string; open_in_classes: number; open_total: number };
+
+/**
+ * Manufacturers focused on the given product classes. Among CAGEs with at least 5 open lines,
+ * keep those where at least 60% of their open lines fall inside the classes, ordered by open
+ * lines in those classes. (Taking the CAGEs with the most lines would pick huge suppliers
+ * approved across dozens of unrelated classes.)
+ */
+export async function suggestCages(fscs: string[], limit = 12, sql = db()): Promise<CageSuggestion[]> {
+  if (fscs.length === 0) return [];
+  return sql<CageSuggestion[]>`
+    with cage_lines as (
+      select distinct a.cage, l.solicitation, l.pr, l.nsn, l.fsc
+      from rfq_lines l join approved_sources a on a.nsn = l.nsn
+      where l.return_by >= ${todayNY()}::date
+    )
+    select cage,
+           count(*) filter (where fsc = any(${fscs}))::int as open_in_classes,
+           count(*)::int                                   as open_total
+    from cage_lines
+    group by cage
+    having count(*) >= 5
+       and count(*) filter (where fsc = any(${fscs})) >= 0.6 * count(*)
+    order by open_in_classes desc, open_total, cage
+    limit ${limit}`;
+}
