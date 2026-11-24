@@ -63,6 +63,10 @@ is a small badge, because most lines are Fast Award.
 **Grouping.** The database keeps one row per (solicitation, PR, NSN). The table shows one row per
 (solicitation, NSN) with the total quantity and "N lines". Summary counts are groups; the data health line counts lines.
 
+**Quantity range.** The Qty min and max boxes above the table narrow the list to rows whose total quantity is in
+range. The chip counts follow the range; the summary strip does not, so "N match your business" always means all
+matches. The range compares the number as shown, whatever the unit (most rows are EA, some are packages, feet or kits).
+
 **Why rules and not AI for matching.** The data is exact codes, so matching is plain SQL (`lib/queries.ts`).
 Every match is exact, repeatable, and comes with its reason. Item names are cut at 21 characters in the source,
 so there is little language for a model to work with anyway.

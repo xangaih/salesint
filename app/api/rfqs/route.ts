@@ -10,12 +10,15 @@ export async function GET(request: NextRequest) {
     };
     const tier = int("tier");
     const due = int("due");
+    const qty = (k: string) => { const v = int(k); return v != null && v >= 0 && v <= 2147483647 ? v : undefined; };
     return Response.json(
       await listGroups({
         view: sp.get("view") === "all" ? "all" : "matches",
         tier: tier && tier >= 1 && tier <= 4 ? tier : undefined,
         due: due != null && due >= 0 && due <= 365 ? due : undefined,
         q: (sp.get("q") ?? "").slice(0, 100),
+        qmin: qty("qmin"),
+        qmax: qty("qmax"),
         page: int("page") ?? 1,
       })
     );

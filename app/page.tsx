@@ -103,6 +103,10 @@ export default function Page() {
   const [page, setPage] = useState(1);
   const [searchText, setSearchText] = useState("");
   const [q, setQ] = useState(""); // debounced search text
+  const [qtyText, setQtyText] = useState({ min: "", max: "" });
+  const [qty, setQty] = useState({ min: "", max: "" }); // debounced, digits only
+  const qtyParams = (qty.min ? `&qmin=${qty.min}` : "") + (qty.max ? `&qmax=${qty.max}` : "");
+  const qtyInvalid = qty.min !== "" && qty.max !== "" && Number(qty.min) > Number(qty.max);
   const [data, setData] = useState<RfqResponse | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -143,8 +147,13 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    getJson<Summary>("/api/summary").then(setSummary).catch((e) => setError(e.message));
-  }, [version]);
+    getJson<Summary>(`/api/summary?${qtyParams.slice(1)}`).then(setSummary).catch((e) => setError(e.message));
+  }, [version, qtyParams]);
+
+  useEffect(() => {
+    const t = setTimeout(() => { setQty(qtyText); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [qtyText]);
 
   useEffect(() => {
     const t = setTimeout(() => { setQ(searchText.trim()); setPage(1); }, 300);
@@ -157,12 +166,12 @@ export default function Page() {
     getJson<RfqResponse>(`/api/rfqs?view=${view}&page=${page}` +
       (view === "matches" && typeof filter === "number" ? `&tier=${filter}` : "") +
       (view === "matches" && filter === "due" ? `&due=${DUE_SOON_DAYS}` : "") +
-      (q ? `&q=${encodeURIComponent(q)}` : ""))
+      (q ? `&q=${encodeURIComponent(q)}` : "") + qtyParams)
       .then((j) => { if (!stale) { setData(j); setError(null); } })
       .catch((e) => { if (!stale) setError(e.message); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [view, filter, page, q, version]);
+  }, [view, filter, page, q, qtyParams, version]);
 
   const show = useCallback((v: View, f: Filter = "all") => { setView(v); setFilter(f); setPage(1); }, []);
   const onSaved = useCallback((p: Profile) => { setProfile(p); setFilter("all"); setPage(1); setVersion((v) => v + 1); }, []);
@@ -224,6 +233,16 @@ export default function Page() {
         {tab("matches", "For you")}
         {tab("all", "All open RFQs")}
         <div className="mb-1 ml-auto flex items-center gap-1">
+          <span className="text-zinc-600">Qty</span>
+          {(["min", "max"] as const).map((k) => (
+            <input key={k} inputMode="numeric" value={qtyText[k]} aria-label={k === "min" ? "Minimum quantity" : "Maximum quantity"}
+              onChange={(e) => setQtyText({ ...qtyText, [k]: e.target.value.replace(/\D/g, "").slice(0, 9) })}
+              placeholder={k} title="Filters on the total quantity shown in the Qty column, whatever the unit"
+              className={`w-20 border px-2 py-0.5 ${qtyInvalid ? "border-red-500" : "border-zinc-300"}`} />
+          ))}
+          {(qty.min || qty.max) && (
+            <button type="button" onClick={() => setQtyText({ min: "", max: "" })} className="mr-2 text-xs text-blue-700 underline">clear</button>
+          )}
           <input type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)}
             aria-label="Search" placeholder="Search solicitation, NSN, PR or item"
             className="w-72 border border-zinc-300 px-2 py-0.5" />
@@ -233,12 +252,12 @@ export default function Page() {
       {view === "matches" && summary && (
         <div className="flex flex-wrap gap-1.5 border border-t-0 border-zinc-300 px-2 py-2">
           {([
-            ["all", "All matches", summary.matched_groups],
-            [1, TIER_SHORT[1], summary.tiers[1]],
-            [2, TIER_SHORT[2], summary.tiers[2]],
-            [3, TIER_SHORT[3], summary.tiers[3]],
-            [4, TIER_SHORT[4], summary.tiers[4]],
-            ["due", "Due within 2 days", summary.matched_due2],
+            ["all", "All matches", summary.in_range.matched_groups],
+            [1, TIER_SHORT[1], summary.in_range.tiers[1]],
+            [2, TIER_SHORT[2], summary.in_range.tiers[2]],
+            [3, TIER_SHORT[3], summary.in_range.tiers[3]],
+            [4, TIER_SHORT[4], summary.in_range.tiers[4]],
+            ["due", "Due within 2 days", summary.in_range.matched_due2],
           ] as [Filter, string, number][]).map(([f, label, count]) => (
             <button key={String(f)} type="button" onClick={() => show("matches", f)}
               title={typeof f === "number" ? TIER_LABELS[f] : undefined}
@@ -298,7 +317,11 @@ export default function Page() {
             )}
             {data && data.rows.length === 0 && (
               <tr><td colSpan={9} className="px-2 py-6 text-center text-zinc-500">
-                {q
+                {qtyInvalid
+                  ? "Minimum quantity is larger than the maximum."
+                  : (qty.min || qty.max) && !q
+                  ? "Nothing in that quantity range under this filter."
+                  : q
                   ? `Nothing found for "${q}"${view === "matches" ? " in your matches. Try the All open RFQs tab." : "."}`
                   : view === "matches" && filter !== "all"
                   ? "No matches under this filter."

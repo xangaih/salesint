@@ -64,6 +64,8 @@ export type Summary = {
   matched_groups: number;
   matched_due2: number;
   tiers: Record<string, number>;
+  /** The same counts with the quantity range applied (equal to the above when no range is set). Used by the chips. */
+  in_range: { matched_groups: number; matched_due2: number; tiers: Record<string, number> };
   latest_post_date: string | null;
   post_days: number;
   ingest: { files: number; lines_read: number; rows_loaded: number; skipped: number };
