@@ -65,3 +65,11 @@ test("helpers", () => {
   assert.equal(formatSolicitation("SPE1C127Q0127"), "SPE1C1-27-Q-0127");
   assert.equal(normalizeNsn("8455-01-145-6344"), "8455011456344");
 });
+
+test("email draft check flags a missing or changed fact", async () => {
+  const { checkDraft } = await import("../lib/ai");
+  const facts = { nsn: "4720-00-456-2967", item: "HOSE", quantity: "30 EA", due: "November 24, 2026", sources: [] };
+  assert.deepEqual(checkDraft("NSN 4720-00-456-2967, 30 EA, reply before November 24, 2026.", facts), []);
+  const w = checkDraft("NSN 4720-00-456-2976, 300 EA needed by Nov 24.", facts);
+  assert.equal(w.length, 3);
+});

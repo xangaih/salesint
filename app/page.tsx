@@ -43,6 +43,48 @@ function Why({ r }: { r: RfqGroup }) {
   );
 }
 
+type EmailState = { row: RfqGroup; kind: "loading" | "done" | "error"; draft?: string; warnings?: string[]; msg?: string };
+
+function EmailDialog({ state, onClose }: { state: EmailState; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { setText(state.draft ?? ""); setCopied(false); }, [state.draft]);
+  return (
+    <div className="fixed inset-0 z-10 flex items-start justify-center bg-black/30 p-6" onClick={onClose}>
+      <div role="dialog" aria-label="Supplier email draft" className="w-full max-w-2xl border border-zinc-400 bg-white p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-baseline justify-between">
+          <b>Supplier email draft</b>
+          <span className="font-mono text-xs text-zinc-600">{formatSolicitation(state.row.solicitation)} · {formatNsn(state.row.nsn)}</span>
+        </div>
+        {state.kind === "loading" && <p className="py-8 text-center text-zinc-500">Drafting…</p>}
+        {state.kind === "error" && <p className="mt-3 border border-red-300 bg-red-50 px-3 py-2 text-red-800">{state.msg}</p>}
+        {state.kind === "done" && (
+          <>
+            {state.warnings && state.warnings.length > 0 && (
+              <div className="mt-2 border border-amber-400 bg-amber-50 px-3 py-2 text-amber-900">
+                <b>Check before sending.</b> The draft does not match the RFQ: {state.warnings.join(" ")}
+              </div>
+            )}
+            <textarea value={text} onChange={(e) => { setText(e.target.value); setCopied(false); }} rows={14}
+              aria-label="Email draft" className="mt-2 w-full border border-zinc-300 p-2 font-mono text-xs" />
+            <p className="text-xs text-zinc-500">Written by AI from this row&apos;s facts only. Read it before you send it; this app never sends email.</p>
+          </>
+        )}
+        <div className="mt-3 flex items-center gap-3">
+          {state.kind === "done" && (
+            <button type="button" className="bg-zinc-900 px-3 py-1 text-white"
+              onClick={() => navigator.clipboard.writeText(text).then(() => setCopied(true), () => setCopied(false))}>
+              Copy
+            </button>
+          )}
+          {copied && <span className="text-green-700">Copied</span>}
+          <button type="button" className="ml-auto border border-zinc-300 px-3 py-1" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Badges({ r }: { r: RfqGroup }) {
   const b = "inline-block whitespace-nowrap px-1.5 py-0.5 text-xs";
   return (
@@ -66,7 +108,22 @@ export default function Page() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [version, setVersion] = useState(0); // bump to refetch after a profile save
+  const [version, setVersion] = useState(0);
+  const [email, setEmail] = useState<EmailState | null>(null);
+  const draftEmail = useCallback(async (row: RfqGroup) => {
+    setEmail({ row, kind: "loading" });
+    try {
+      const r = await fetch("/api/ai/email", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ solicitation: row.solicitation, nsn: row.nsn }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Could not draft the email.");
+      setEmail((cur) => (cur?.row === row ? { row, kind: "done", draft: j.draft, warnings: j.warnings } : cur));
+    } catch (e) {
+      setEmail((cur) => (cur?.row === row ? { row, kind: "error", msg: (e as Error).message } : cur));
+    }
+  }, []); // bump to refetch after a profile save
 
   useEffect(() => {
     getJson<Profile>("/api/profile").then(setProfile).catch((e) => setError(e.message));
@@ -181,6 +238,7 @@ export default function Page() {
               <th className="px-2 py-1.5">Due</th>
               <th className="px-2 py-1.5">Set-aside</th>
               <th className="px-2 py-1.5">Badges</th>
+              <th className="px-2 py-1.5"></th>
             </tr>
           </thead>
           <tbody className={loading ? "opacity-50" : ""}>
@@ -203,13 +261,20 @@ export default function Page() {
                 </td>
                 <td className="px-2 py-1 text-xs">{setAsideLabel(r.set_aside)}</td>
                 <td className="px-2 py-1"><Badges r={r} /></td>
+                <td className="whitespace-nowrap px-2 py-1">
+                  {r.tier != null && r.has_source && (
+                    <button type="button" onClick={() => draftEmail(r)} className="border border-zinc-300 px-1.5 py-0.5 text-xs hover:bg-zinc-100">
+                      Draft supplier email
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {!data && loading && (
-              <tr><td colSpan={8} className="px-2 py-6 text-center text-zinc-500">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-2 py-6 text-center text-zinc-500">Loading…</td></tr>
             )}
             {data && data.rows.length === 0 && (
-              <tr><td colSpan={8} className="px-2 py-6 text-center text-zinc-500">
+              <tr><td colSpan={9} className="px-2 py-6 text-center text-zinc-500">
                 {q
                   ? `Nothing found for "${q}"${view === "matches" ? " in your matches. Try the All open RFQs tab." : "."}`
                   : view === "matches" && filter !== "all"
@@ -230,6 +295,8 @@ export default function Page() {
           <button className="border border-zinc-300 px-2 py-0.5 disabled:opacity-40" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next →</button>
         </div>
       )}
+
+      {email && <EmailDialog state={email} onClose={() => setEmail(null)} />}
 
       <p className="mt-6 text-xs text-zinc-500">
         Daily files run about a day behind DIBBS and carry no status: a cancelled or awarded RFQ can still show here.

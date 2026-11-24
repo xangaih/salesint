@@ -52,7 +52,8 @@ function groupsCte(today: string) {
              coalesce(g0.fsc = any(p.fscs), false)      as r_class,
              coalesce((select array_agg(distinct a.cage order by a.cage)
                        from approved_sources a
-                       where a.nsn = g0.nsn and a.cage = any(p.cages)), '{}') as cages
+                       where a.nsn = g0.nsn and a.cage = any(p.cages)), '{}') as cages,
+             exists (select 1 from approved_sources a where a.nsn = g0.nsn) as has_source
       from g0 cross join p
     ),
     g as (
@@ -92,7 +93,7 @@ export async function listGroups({ view, tier, due, q, page }: ListParams): Prom
     with ${groupsCte(today)}
     select solicitation, nsn, is_nsn, fsc, item, total_qty, uom, line_count,
            return_by::text as return_by, days_left, set_aside, eligible, tier,
-           r_part, r_class, cages, fast_award, extended, is_new
+           r_part, r_class, cages, has_source, fast_award, extended, is_new
     from g ${where}
     order by tier nulls last, return_by, total_qty desc, solicitation, nsn
     limit ${PAGE_SIZE} offset ${(p - 1) * PAGE_SIZE}`;

@@ -44,6 +44,7 @@ export type RfqGroup = {
   r_part: boolean;
   r_class: boolean;
   cages: string[]; // the vendor's CAGEs approved for this NSN
+  has_source: boolean; // any approved source on file for this NSN
   fast_award: boolean;
   extended: boolean;
   is_new: boolean;

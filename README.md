@@ -14,6 +14,8 @@ daily files and shows one vendor the RFQs that match their business, ranked, wit
 6. `npm run seed` — creates the sample profile (only if none exists; `-- --force` to reset it).
 7. `npm run dev` and open http://localhost:3000
 
+Optional: add `ANTHROPIC_API_KEY=...` to `.env.local` for the two AI features.
+
 `npm test` runs the parser tests.
 
 ## How data is pulled
@@ -58,6 +60,20 @@ is a small badge, because most lines are Fast Award.
 **Why rules and not AI for matching.** The data is exact codes, so matching is plain SQL (`lib/queries.ts`).
 Every match is exact, repeatable, and comes with its reason. Item names are cut at 21 characters in the source,
 so there is little language for a model to work with anyway.
+
+## Optional AI (two places, both confirmed by a person)
+
+Set `ANTHROPIC_API_KEY` in `.env.local` to turn these on. Without it, or if a call fails, the app shows a short
+error and everything else keeps working. Both use the Anthropic TypeScript SDK on the server with `claude-opus-5-5`.
+
+- **Describe your business → suggested product classes.** The model picks from a closed list: every product class
+  in the loaded data, each with its five most common item names. Code drops any class not on that list. Suggestions
+  are checkboxes; nothing is saved until you tick and click Save.
+- **Draft supplier email** (matched rows with an approved source). The server sends only that row's facts: NSN,
+  item name, total quantity and unit, due date, and the approved CAGE and part numbers. Code then checks that the
+  NSN, quantity and due date appear in the draft exactly, and shows a warning above the draft if not. The app never sends email.
+
+AI is not used in parsing, matching or ranking.
 
 ## How the data is trusted
 

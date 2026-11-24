@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { PROFILE_SET_ASIDES, type Profile } from "@/lib/match";
 import { normalizeNsn, setAsideLabel } from "@/lib/parse";
 
+type FscSuggestion = { fsc: string; reason: string; examples: string[] };
 type CageSuggestion = { cage: string; open_in_classes: number; open_total: number };
 
 function Chips({ label, hint, values, onChange, pattern, upper, children }: {
@@ -62,6 +63,20 @@ export default function ProfilePanel({ initial, onSaved }: { initial: Profile; o
       .catch(() => { if (!stale) setSuggested([]); });
     return () => { stale = true; };
   }, [fscKey]);
+  const [ai, setAi] = useState<{ kind: "idle" | "loading" | "done" | "error"; msg?: string; items: FscSuggestion[] }>({ kind: "idle", items: [] });
+  const suggest = async () => {
+    setAi({ kind: "loading", items: [] });
+    try {
+      const r = await fetch("/api/ai/suggest", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description: p.description }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Could not get suggestions.");
+      setAi({ kind: "done", items: j.suggestions });
+    } catch (e) {
+      setAi({ kind: "error", msg: (e as Error).message, items: [] });
+    }
+  };
   const edit = (patch: Partial<Profile>) => { setP({ ...p, ...patch }); setStatus({ kind: "idle" }); };
 
   const save = async () => {
@@ -117,6 +132,34 @@ export default function ProfilePanel({ initial, onSaved }: { initial: Profile; o
                 </label>
               ))}
             </div>
+          </div>
+          <div className="md:col-span-2">
+            <div className="font-medium">Describe your business <span className="font-normal text-zinc-500">(optional, a sentence or two; AI suggests product classes for you to confirm)</span></div>
+            <div className="mt-1 flex items-start gap-2">
+              <textarea value={p.description} onChange={(e) => edit({ description: e.target.value })} rows={2} aria-label="Business description"
+                className="w-full border border-zinc-300 px-2 py-1" placeholder="We distribute hydraulic hose assemblies, tube fittings and seals for ground vehicles." />
+              <button type="button" onClick={suggest} disabled={ai.kind === "loading" || p.description.trim().length < 10}
+                className="whitespace-nowrap border border-zinc-400 px-2 py-1 hover:bg-zinc-100 disabled:opacity-50">
+                {ai.kind === "loading" ? "Thinking…" : "Suggest classes"}
+              </button>
+            </div>
+            {ai.kind === "error" && <p className="mt-1 text-red-700">{ai.msg}</p>}
+            {ai.kind === "done" && ai.items.length === 0 && <p className="mt-1 text-zinc-600">No product class in the loaded data fits that description.</p>}
+            {ai.items.length > 0 && (
+              <div className="mt-1.5 border border-dashed border-zinc-400 p-2">
+                <div className="text-xs text-zinc-600">AI suggestions. Tick the ones that fit, then click Save. Nothing is saved until you do.</div>
+                {ai.items.map((s) => (
+                  <label key={s.fsc} className="mt-1 flex items-start gap-2">
+                    <input type="checkbox" className="mt-0.5" checked={p.fscs.includes(s.fsc)}
+                      onChange={(e) => edit({ fscs: e.target.checked ? [...p.fscs, s.fsc] : p.fscs.filter((x) => x !== s.fsc) })} />
+                    <span>
+                      <span className="font-mono font-medium">{s.fsc}</span> {s.reason}{" "}
+                      <span className="text-xs text-zinc-500">e.g. {s.examples.join("; ")}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           <Chips label="Product classes (FSC)" hint="4 digits" values={p.fscs} pattern={/^\d{4}$/} onChange={(fscs) => edit({ fscs })} />
           <Chips label="Manufacturers I carry (CAGE)" hint="5 characters" values={p.cages} pattern={/^[A-Z0-9]{5}$/} upper onChange={(cages) => edit({ cages })}>
