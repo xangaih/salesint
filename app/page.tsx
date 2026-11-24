@@ -33,7 +33,7 @@ function Why({ r }: { r: RfqGroup }) {
   }
   return (
     <div>
-      <span className={`inline-block px-1.5 py-0.5 text-xs font-medium ${TIER_STYLE[r.tier]}`}>{TIER_LABELS[r.tier]}</span>
+      <span className={`inline-block whitespace-nowrap px-1.5 py-0.5 text-xs font-medium ${TIER_STYLE[r.tier]}`}>{TIER_LABELS[r.tier]}</span>
       <div className="mt-0.5 flex flex-wrap gap-1 text-xs text-zinc-600">
         {r.r_part && <span className="border border-zinc-300 px-1">part on your list</span>}
         {r.cages.length > 0 && <span className="border border-zinc-300 px-1">approved source: <span className="font-mono">{r.cages.join(", ")}</span></span>}
@@ -46,7 +46,7 @@ function Why({ r }: { r: RfqGroup }) {
 function Badges({ r }: { r: RfqGroup }) {
   const b = "inline-block whitespace-nowrap px-1.5 py-0.5 text-xs";
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex gap-1">
       {r.days_left <= DUE_SOON_DAYS && <span className={`${b} bg-red-600 font-medium text-white`}>Due soon</span>}
       {r.fast_award && <span className={`${b} border border-amber-400 text-amber-800`} title="Can be awarded before the deadline.">Fast Award</span>}
       {r.extended && <span className={`${b} border border-violet-400 text-violet-800`}>Deadline extended</span>}
@@ -59,6 +59,8 @@ export default function Page() {
   const [view, setView] = useState<View>("matches");
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
+  const [searchText, setSearchText] = useState("");
+  const [q, setQ] = useState(""); // debounced search text
   const [data, setData] = useState<RfqResponse | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -75,16 +77,22 @@ export default function Page() {
   }, [version]);
 
   useEffect(() => {
+    const t = setTimeout(() => { setQ(searchText.trim()); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [searchText]);
+
+  useEffect(() => {
     let stale = false;
     setLoading(true);
     getJson<RfqResponse>(`/api/rfqs?view=${view}&page=${page}` +
       (view === "matches" && typeof filter === "number" ? `&tier=${filter}` : "") +
-      (view === "matches" && filter === "due" ? `&due=${DUE_SOON_DAYS}` : ""))
+      (view === "matches" && filter === "due" ? `&due=${DUE_SOON_DAYS}` : "") +
+      (q ? `&q=${encodeURIComponent(q)}` : ""))
       .then((j) => { if (!stale) { setData(j); setError(null); } })
       .catch((e) => { if (!stale) setError(e.message); })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [view, filter, page, version]);
+  }, [view, filter, page, q, version]);
 
   const show = useCallback((v: View, f: Filter = "all") => { setView(v); setFilter(f); setPage(1); }, []);
   const onSaved = useCallback((p: Profile) => { setProfile(p); setFilter("all"); setPage(1); setVersion((v) => v + 1); }, []);
@@ -101,8 +109,25 @@ export default function Page() {
   );
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-4">
-      <h1 className="text-lg font-semibold">DIBBS RFQ Finder</h1>
+    <main className="mx-auto max-w-[1400px] px-4 py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6">
+        <h1 className="text-lg font-semibold">DIBBS RFQ Finder</h1>
+        {summary && (
+          <p className="text-xs text-zinc-600">
+            {summary.latest_post_date ? (
+              <>
+                Data through {fmtDate(summary.latest_post_date)} · {summary.total_lines.toLocaleString()} lines loaded from{" "}
+                {summary.ingest.files} daily {summary.ingest.files === 1 ? "file" : "files"} ·{" "}
+                <span className={summary.ingest.skipped ? "font-semibold text-red-700" : ""}>
+                  {summary.ingest.skipped.toLocaleString()} skipped
+                </span>
+              </>
+            ) : (
+              "No data loaded yet. Run: npm run download, then npm run ingest."
+            )}
+          </p>
+        )}
+      </div>
 
       {error && <p className="mt-3 border border-red-300 bg-red-50 px-3 py-2 text-red-800">{error}</p>}
 
@@ -115,9 +140,14 @@ export default function Page() {
         </p>
       )}
 
-      <div className="mt-4 flex gap-1 border-b border-zinc-300">
+      <div className="mt-4 flex items-end gap-1 border-b border-zinc-300">
         {tab("matches", "For you")}
         {tab("all", "All open RFQs")}
+        <div className="mb-1 ml-auto flex items-center gap-1">
+          <input type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)}
+            aria-label="Search" placeholder="Search solicitation, NSN, PR or item"
+            className="w-72 border border-zinc-300 px-2 py-0.5" />
+        </div>
       </div>
 
       {view === "matches" && summary && (
@@ -162,7 +192,7 @@ export default function Page() {
                     {formatSolicitation(r.solicitation)}
                   </a>
                 </td>
-                <td className="px-2 py-1 font-mono">{formatNsn(r.nsn)}</td>
+                <td className="whitespace-nowrap px-2 py-1 font-mono">{formatNsn(r.nsn)}</td>
                 <td className="px-2 py-1">{r.item}</td>
                 <td className="whitespace-nowrap px-2 py-1 text-right">
                   {r.total_qty.toLocaleString()} {r.uom}
@@ -171,7 +201,7 @@ export default function Page() {
                 <td className="whitespace-nowrap px-2 py-1">
                   {fmtDate(r.return_by)} <span className="text-xs text-zinc-500">{inDays(r.days_left)}</span>
                 </td>
-                <td className="px-2 py-1">{setAsideLabel(r.set_aside)}</td>
+                <td className="px-2 py-1 text-xs">{setAsideLabel(r.set_aside)}</td>
                 <td className="px-2 py-1"><Badges r={r} /></td>
               </tr>
             ))}
@@ -180,7 +210,9 @@ export default function Page() {
             )}
             {data && data.rows.length === 0 && (
               <tr><td colSpan={8} className="px-2 py-6 text-center text-zinc-500">
-                {view === "matches" && filter !== "all"
+                {q
+                  ? `Nothing found for "${q}"${view === "matches" ? " in your matches. Try the All open RFQs tab." : "."}`
+                  : view === "matches" && filter !== "all"
                   ? "No matches under this filter."
                   : view === "matches"
                   ? "Nothing matches your profile yet. Add product classes, manufacturers or parts above, or look at All open RFQs."
