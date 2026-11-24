@@ -147,7 +147,12 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    getJson<Summary>(`/api/summary?${qtyParams.slice(1)}`).then(setSummary).catch((e) => setError(e.message));
+    // Ignore an answer that arrives after a newer request was sent (e.g. the first, unfiltered one).
+    let stale = false;
+    getJson<Summary>(`/api/summary?${qtyParams.slice(1)}`)
+      .then((j) => { if (!stale) setSummary(j); })
+      .catch((e) => { if (!stale) setError(e.message); });
+    return () => { stale = true; };
   }, [version, qtyParams]);
 
   useEffect(() => {
