@@ -6,13 +6,31 @@ const BASE = "https://dibbs2.bsm.dla.mil/Downloads/RFQ/Archive/";
 
 type Resp = { url: string; res: Response; body: Buffer };
 
+/**
+ * Where to go for a redirect. DIBBS sits behind a load balancer and sometimes answers with a
+ * redirect to a plain http:// address on its own host; its port 80 does not answer, so we stay on https.
+ */
+export function redirectTarget(location: string, from: string): string {
+  const next = new URL(location, from);
+  if (next.protocol === "http:" && next.hostname.endsWith(".dla.mil")) {
+    next.protocol = "https:";
+    next.port = "";
+  }
+  return next.toString();
+}
+
 export class DibbsSession {
   private cookies = new Map<string, string>();
   constructor(private acceptConsent: boolean, private log: (msg: string) => void = () => {}) {}
 
   /** fetch with a tiny cookie jar, following redirects by hand so cookies set on the way are kept. */
+  /** Every request made, for diagnosis: "GET https://… -> 302 Location: …". Query strings are left out. */
+  readonly trail: string[] = [];
+
   private async request(url: string, init: RequestInit = {}): Promise<Resp> {
+    const short = (u: string) => u.split("?")[0];
     for (let hop = 0; hop < 6; hop++) {
+      const method = init.method ?? "GET";
       const send = () => fetch(url, {
         ...init,
         redirect: "manual",
@@ -28,7 +46,10 @@ export class DibbsSession {
       const res = await send().catch(async (e) => {
         this.log(`connection to DIBBS failed (${(e as Error).cause ?? (e as Error).message}); retrying once`);
         await new Promise((r) => setTimeout(r, 2000));
-        return send().catch((e2) => { throw new Error(`Could not reach DIBBS: ${(e2 as Error).cause ?? (e2 as Error).message}`); });
+        return send().catch((e2) => {
+          this.trail.push(`${method} ${short(url)} -> no answer`);
+          throw new Error(`Could not reach DIBBS: ${(e2 as Error).cause ?? (e2 as Error).message}`);
+        });
       });
       for (const c of res.headers.getSetCookie()) {
         const [pair] = c.split(";");
@@ -36,8 +57,9 @@ export class DibbsSession {
         if (eq > 0) this.cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
       }
       const loc = res.headers.get("location");
+      this.trail.push(`${method} ${short(url)} -> ${res.status}${loc ? ` Location: ${short(loc)}` : ""} (${res.headers.get("content-type") ?? "no type"})`);
       if (res.status >= 300 && res.status < 400 && loc) {
-        url = new URL(loc, url).toString();
+        url = redirectTarget(loc, url);
         init = {}; // redirects become plain GETs
         continue;
       }

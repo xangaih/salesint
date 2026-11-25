@@ -73,3 +73,12 @@ test("email draft check flags a missing or changed fact", async () => {
   const w = checkDraft("NSN 4720-00-456-2976, 300 EA needed by Nov 24.", facts);
   assert.equal(w.length, 3);
 });
+
+test("redirects to plain http on a DLA host are kept on https", async () => {
+  const { redirectTarget } = await import("../lib/dibbs");
+  const from = "https://dibbs2.bsm.dla.mil/Downloads/RFQ/Archive/in261123.txt";
+  assert.equal(redirectTarget("http://dibbs2.bsm.dla.mil/dodwarning.aspx?goto=%2fx", from), "https://dibbs2.bsm.dla.mil/dodwarning.aspx?goto=%2fx");
+  assert.equal(redirectTarget("http://dibbs2.bsm.dla.mil:80/a", from), "https://dibbs2.bsm.dla.mil/a");
+  assert.equal(redirectTarget("../../../dodwarning.aspx?goto=1", from), "https://dibbs2.bsm.dla.mil/dodwarning.aspx?goto=1");
+  assert.equal(redirectTarget("http://example.com/a", from), "http://example.com/a"); // other hosts untouched
+});
