@@ -21,13 +21,19 @@ export async function pullLatest(): Promise<PullResult> {
   const dibbs = new DibbsSession(true);
   const fetched: { ymd: string; index: Buffer; zip: Buffer | null }[] = [];
   const notPosted: string[] = [];
-  for (const ymd of candidates) {
-    if (!latest && fetched.length >= FIRST_LOAD_DAYS) break;
-    const index = await dibbs.getFile(`in${ymd}.txt`);
-    if (!index) { notPosted.push(ymd); continue; }
-    await sleep(300);
-    fetched.push({ ymd, index, zip: await dibbs.getFile(`bq${ymd}.zip`) });
-    await sleep(300);
+  try {
+    for (const ymd of candidates) {
+      if (!latest && fetched.length >= FIRST_LOAD_DAYS) break;
+      const index = await dibbs.getFile(`in${ymd}.txt`);
+      if (!index) { notPosted.push(ymd); continue; }
+      await sleep(300);
+      fetched.push({ ymd, index, zip: await dibbs.getFile(`bq${ymd}.zip`) });
+      await sleep(300);
+    }
+  } catch (e) {
+    // Server log only: the exact exchange with DIBBS, so a failed pull can be diagnosed.
+    console.error("DIBBS exchange before the failure:\n  " + dibbs.trail.join("\n  "));
+    throw e;
   }
 
   const days: PullDay[] = [];
